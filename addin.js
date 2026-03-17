@@ -242,8 +242,15 @@ var fleetDash = (function () {
      so no paging or windowing is needed here.
   ================================================================ */
   function fetchAllDevices(onDone, onErr) {
-    _api.call('Get', { typeName: 'Device' }, function (devices) {
-      console.log('[FleetDash] Fetched ' + (devices ? devices.length : 0) + ' devices');
+    // groupSearch GroupVehicleId excludes trailers — since Geotab migrated
+    // trailers to the Device typename in release 8.0, a plain Get/Device
+    // returns both vehicles and trailers. Scoping to GroupVehicleId returns
+    // only vehicles.
+    _api.call('Get', {
+      typeName: 'Device',
+      search: { groupSearch: { id: 'GroupVehicleId' } }
+    }, function (devices) {
+      console.log('[FleetDash] Fetched ' + (devices ? devices.length : 0) + ' vehicles (trailers excluded via GroupVehicleId)');
       onDone(devices || []);
     }, onErr);
   }
