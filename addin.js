@@ -153,9 +153,9 @@ var fleetDash = (function () {
     });
   }
 
-  function kmToMiles(km) {
-    var v = parseFloat(km);
-    return isNaN(v) ? 0 : v * 0.621371;
+  function metersToMiles(m) {
+    var v = parseFloat(m);
+    return isNaN(v) ? 0 : v * 0.000621371;
   }
 
   function durationToHours(val) {
@@ -340,7 +340,7 @@ var fleetDash = (function () {
           var did = t.device && t.device.id;
           if (!did) return;
 
-          milesMap[did] = (milesMap[did] || 0) + kmToMiles(t.distance);
+          milesMap[did] = (milesMap[did] || 0) + metersToMiles(t.distance);
           idleMap[did]  = (idleMap[did]  || 0) + durationToHours(t.idlingDuration);
           tripMap[did]  = (tripMap[did]  || 0) + 1;
 
