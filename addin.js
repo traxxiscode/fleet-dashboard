@@ -242,17 +242,24 @@ var fleetDash = (function () {
      so no paging or windowing is needed here.
   ================================================================ */
   function fetchAllDevices(onDone, onErr) {
-    // Fetch all devices, then filter out trailers client-side.
-    // Since Geotab release 8.0, trailers are stored as Device entities and
-    // are always members of the built-in GroupTrailerId group. Checking each
-    // device's groups array for that id is the reliable way to exclude them.
-    _api.call('Get', { typeName: 'Device' }, function (devices) {
-      devices = devices || [];
+    // Fetch Device and Trailer in parallel. Build a set of trailer names,
+    // then exclude any Device whose name appears in that set.
+    _api.multiCall([
+      ['Get', { typeName: 'Device'  }],
+      ['Get', { typeName: 'Trailer' }]
+    ], function (res) {
+      var devices  = (res && res[0]) || [];
+      var trailers = (res && res[1]) || [];
+
+      // Build a set of trailer names for fast lookup
+      var trailerNames = {};
+      trailers.forEach(function (t) { if (t.name) trailerNames[t.name] = true; });
+
       var vehicles = devices.filter(function (d) {
-        var groups = d.groups || [];
-        return !groups.some(function (g) { return g.id === 'GroupTrailerId'; });
+        return d.name && !trailerNames[d.name];
       });
-      console.log('[FleetDash] Fetched ' + devices.length + ' devices, ' + vehicles.length + ' vehicles after excluding trailers');
+
+      console.log('[FleetDash] Devices: ' + devices.length + ', Trailers: ' + trailers.length + ', Vehicles after exclusion: ' + vehicles.length);
       onDone(vehicles);
     }, onErr);
   }
@@ -284,14 +291,13 @@ var fleetDash = (function () {
     var milesMap = {};
     var idleMap  = {};
     var tripMap  = {};
-    var nameMap  = {};   // device id → name (from Trip.device.name if available)
 
     var winIdx = 0;
 
     function nextWindow() {
       if (winIdx >= windows.length) {
         console.log('[FleetDash] All trip windows complete. Vehicles with data:', Object.keys(milesMap).length);
-        onDone(milesMap, idleMap, tripMap, nameMap);
+        onDone(milesMap, idleMap, tripMap);
         return;
       }
 
@@ -315,11 +321,6 @@ var fleetDash = (function () {
           milesMap[did] = (milesMap[did] || 0) + kmToMiles(t.distance);
           idleMap[did]  = (idleMap[did]  || 0) + durationToHours(t.idlingDuration);
           tripMap[did]  = (tripMap[did]  || 0) + 1;
-
-          // Capture device name from trip data when available
-          if (!nameMap[did] && t.device && t.device.name) {
-            nameMap[did] = t.device.name;
-          }
         });
 
         nextWindow();
@@ -366,19 +367,21 @@ var fleetDash = (function () {
       showBox('FETCHING TRIPS FOR ' + devices.length + ' VEHICLES…', 15);
 
       // Step 2 — Fetch all trips in time windows (no resultsLimit)
-      fetchTripsWindowed(fromStr, toStr, function (milesMap, idleMap, tripMap, nameMap) {
+      fetchTripsWindowed(fromStr, toStr, function (milesMap, idleMap, tripMap) {
         showBox('BUILDING TABLE…', 90);
 
-        // Merge device names: prefer Device record name, fall back to trip-embedded name
+        // Build rows only for confirmed vehicle IDs (devMap keys).
+        // This ensures trailers that appear in trip data are excluded,
+        // and all names come from the Device record rather than falling
+        // back to raw IDs.
         var rows = [];
-        Object.keys(milesMap).forEach(function (did) {
+        Object.keys(devMap).forEach(function (did) {
           var miles = milesMap[did] || 0;
           var idleH = idleMap[did]  || 0;
           var trips = tripMap[did]  || 0;
           if (miles === 0 && idleH === 0 && trips === 0) return;
 
-          var name = devMap[did] || nameMap[did] || did;
-          rows.push({ name: name, miles: miles, idleH: idleH, trips: trips });
+          rows.push({ name: devMap[did], miles: miles, idleH: idleH, trips: trips });
         });
 
         rows.sort(function (a, b) { return b.miles - a.miles; });
