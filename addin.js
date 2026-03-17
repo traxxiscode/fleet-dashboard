@@ -23,7 +23,6 @@ var fleetDash = (function () {
 
   /* ── Constants ─────────────────────────────────────────── */
   var WINDOW_DAYS = 3;          // Trip time-window size (days)
-  var PAGE_SIZE   = 500;        // Device page size for cursor paging
 
   var MONTHS      = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -236,53 +235,17 @@ var fleetDash = (function () {
   }
 
   /* ================================================================
-     FETCH — DEVICES (cursor paging, no resultsLimit)
+  /* ================================================================
+     FETCH — DEVICES (single call, no resultsLimit)
 
-     Geotab's Get/Device endpoint does not support a fromId cursor
-     the same way Trip does, so we use resultsLimit + offset-style
-     paging via the search.fromVersion / search.id approach.
-
-     Instead we use the recommended approach: call without a limit,
-     relying on the Geotab server's default page handling, and
-     accumulate pages via fromId until we receive an empty page.
-
-     Pattern:
-       1. Call Get/Device with no resultsLimit.
-       2. If the response length equals PAGE_SIZE, record the last
-          id as the next cursor and repeat.
-       3. Stop when a page is shorter than PAGE_SIZE (final page).
+     Device counts are well within the server's single-call capacity,
+     so no paging or windowing is needed here.
   ================================================================ */
   function fetchAllDevices(onDone, onErr) {
-    var allDevices = [];
-    var lastId     = null;
-
-    function nextPage() {
-      var search = lastId ? { fromId: lastId } : {};
-      _api.call('Get', { typeName: 'Device', search: search }, function (page) {
-        page = page || [];
-        console.log('[FleetDash] Device page: ' + page.length + ' records' + (lastId ? ' (cursor: ' + lastId + ')' : ''));
-
-        if (!page.length) {
-          // Empty page — we're done
-          onDone(allDevices);
-          return;
-        }
-
-        // Deduplicate in case the cursor overlaps
-        page.forEach(function (d) { allDevices.push(d); });
-
-        if (page.length < PAGE_SIZE) {
-          // Final page (shorter than a full page)
-          onDone(allDevices);
-        } else {
-          // Full page — there may be more; advance cursor
-          lastId = page[page.length - 1].id;
-          nextPage();
-        }
-      }, onErr);
-    }
-
-    nextPage();
+    _api.call('Get', { typeName: 'Device' }, function (devices) {
+      console.log('[FleetDash] Fetched ' + (devices ? devices.length : 0) + ' devices');
+      onDone(devices || []);
+    }, onErr);
   }
 
   /* ================================================================
