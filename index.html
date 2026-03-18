@@ -10,11 +10,11 @@
 
 <div id="fleetdashboard" style="display:none;">
 
-  <!-- Action buttons hoisted into the dashboard suite header by the parent -->
-  <div data-suite-actions style="display:none;">
+  <!-- Inline toolbar — lives inside the add-in, not hoisted into the suite header -->
+  <div class="sc-toolbar">
 
     <!-- Range pills -->
-    <div class="range-group" style="display:flex;gap:4px;">
+    <div class="range-group">
       <button class="range-btn"        onclick="fleetDash.setRange(7)">7D</button>
       <button class="range-btn active" onclick="fleetDash.setRange(30)">30D</button>
       <button class="range-btn"        onclick="fleetDash.setRange(60)">60D</button>
@@ -59,6 +59,12 @@
       </div>
     </div>
 
+    <!-- Date range label -->
+    <p class="date-range" id="dateRange" style="margin:0;"></p>
+
+    <!-- Spacer pushes right-side controls to the end -->
+    <div class="sc-toolbar__spacer"></div>
+
     <!-- Theme toggle -->
     <div class="toggle-wrap" onclick="fleetDash.toggleTheme()">
       <div class="toggle-track"><div class="toggle-thumb"></div></div>
@@ -75,11 +81,6 @@
       </svg>
       Refresh
     </button>
-  </div>
-
-  <!-- Inline subtitle: date range only (dashboard owns the header) -->
-  <div class="sc-sub" style="padding:12px 20px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-    <p class="date-range" id="dateRange" style="margin:0;"></p>
   </div>
 
   <!-- ── KPI Cards ───────────────────────────────────────── -->

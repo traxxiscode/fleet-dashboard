@@ -58,7 +58,23 @@ html, body {
   padding: 16px 24px 28px;
 }
 
-/* Date range subtitle shown inline below dashboard header */
+/* ── Inline Toolbar (replaces header injection) ─────────── */
+.sc-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.sc-toolbar__spacer {
+  flex: 1;
+  min-width: 12px;
+}
+
+/* Date range label lives inside the toolbar */
 .date-range {
   font-size: .78rem;
   color: var(--text3);
