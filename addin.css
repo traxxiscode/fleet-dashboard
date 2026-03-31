@@ -529,3 +529,9 @@ td { padding: 13px 18px; font-size: 0.88rem; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+/* ── Exception Events Column ────────────────────────────── */
+.except-val {
+  font-weight: 700;
+  color: #c026d3;
+  font-size: 0.88rem;
+}

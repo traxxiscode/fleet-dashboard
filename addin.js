@@ -146,7 +146,7 @@ var fleetDash = (function () {
   }
 
   function resetKPIs() {
-    ['k1','k2','k3','k4','k5'].forEach(function (id) {
+    ['k1','k2','k3','k4','k5','k6'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.textContent = '\u2014';
     });
@@ -179,12 +179,14 @@ var fleetDash = (function () {
     var tm = rows.reduce(function (s, r) { return s + r.miles; }, 0);
     var ti = rows.reduce(function (s, r) { return s + r.idleH; }, 0);
     var tt = rows.reduce(function (s, r) { return s + r.trips; }, 0);
+    var te = rows.reduce(function (s, r) { return s + (r.except || 0); }, 0);
 
     document.getElementById('k1').textContent = Math.round(tm).toLocaleString();
     document.getElementById('k2').textContent = ti.toFixed(1) + 'h';
     document.getElementById('k3').textContent = rows.length ? Math.round(tm / rows.length).toLocaleString() : '0';
     document.getElementById('k4').textContent = rows.length;
     document.getElementById('k5').textContent = tt.toLocaleString();
+    document.getElementById('k6').textContent = te.toLocaleString();
 
     var rangeLabel = _isCustom ? 'Custom range' : 'Last ' + _days + ' days';
     var foot = document.getElementById('foot');
@@ -206,6 +208,7 @@ var fleetDash = (function () {
       th('trips', 'Trips') +
       th('idleH', 'Idle Time') +
       '<th>Idle Level</th>' +
+      th('except', 'Exception Events') +
       '</tr></thead><tbody>';
 
     rows.forEach(function (r) {
@@ -222,6 +225,7 @@ var fleetDash = (function () {
           '<span class="ival">' + idleH.toFixed(1) + 'h</span>' +
         '</div></td>' +
         '<td><span class="bdg ' + cls + '">' + lbl + '</span></td>' +
+        '<td class="except-val">' + (r.except || 0).toLocaleString() + '</td>' +
       '</tr>';
     });
 
@@ -334,6 +338,66 @@ var fleetDash = (function () {
   }
 
   /* ================================================================
+     FETCH — EXCEPTION EVENTS (time-window paging, no resultsLimit)
+
+     ExceptionEvents are fetched fleet-wide in sequential WINDOW_DAYS-day
+     time slices, identical to the Trip fetch pattern.
+  ================================================================ */
+  function fetchExceptionEventsWindowed(fromStr, toStr, onDone, onErr) {
+    var windows = [];
+    var cursor  = new Date(fromStr);
+    var end     = new Date(toStr);
+
+    while (cursor < end) {
+      var wEnd = new Date(cursor);
+      wEnd.setDate(wEnd.getDate() + WINDOW_DAYS);
+      if (wEnd > end) wEnd = end;
+      windows.push([cursor.toISOString(), wEnd.toISOString()]);
+      cursor = wEnd;
+    }
+
+    console.log('[FleetDash] ExceptionEvent fetch: ' + windows.length + ' × ' + WINDOW_DAYS + '-day windows');
+
+    var exceptMap = {};
+    var winIdx = 0;
+
+    function nextWindow() {
+      if (winIdx >= windows.length) {
+        console.log('[FleetDash] All exception windows complete. Vehicles with events:', Object.keys(exceptMap).length);
+        onDone(exceptMap);
+        return;
+      }
+
+      var w   = windows[winIdx];
+      var pct = Math.round(90 + (winIdx / windows.length) * 8);
+      showBox('FETCHING EXCEPTION EVENTS… (window ' + (winIdx + 1) + '/' + windows.length + ')', pct);
+      winIdx++;
+
+      _api.call('Get', {
+        typeName: 'ExceptionEvent',
+        search: { fromDate: w[0], toDate: w[1] }
+      }, function (events) {
+        events = events || [];
+        console.log('[FleetDash]   Exception window returned ' + events.length + ' events');
+
+        events.forEach(function (ev) {
+          var did = ev.device && ev.device.id;
+          if (!did) return;
+          exceptMap[did] = (exceptMap[did] || 0) + 1;
+        });
+
+        nextWindow();
+      }, function (err) {
+        console.error('[FleetDash] Exception window ' + winIdx + ' failed:', err);
+        // Non-fatal: resolve with whatever we've collected so far
+        onDone(exceptMap);
+      });
+    }
+
+    nextWindow();
+  }
+
+  /* ================================================================
      MAIN FETCH ORCHESTRATOR
   ================================================================ */
   function fetchData() {
@@ -368,30 +432,32 @@ var fleetDash = (function () {
 
       // Step 2 — Fetch all trips in time windows (no resultsLimit)
       fetchTripsWindowed(fromStr, toStr, function (milesMap, idleMap, tripMap) {
-        showBox('BUILDING TABLE…', 90);
 
-        // Build rows only for confirmed vehicle IDs (devMap keys).
-        // This ensures trailers that appear in trip data are excluded,
-        // and all names come from the Device record rather than falling
-        // back to raw IDs.
-        var rows = [];
-        Object.keys(devMap).forEach(function (did) {
-          var miles = milesMap[did] || 0;
-          var idleH = idleMap[did]  || 0;
-          var trips = tripMap[did]  || 0;
-          if (miles === 0 && idleH === 0 && trips === 0) return;
+        // Step 3 — Fetch all exception events in the same windows
+        fetchExceptionEventsWindowed(fromStr, toStr, function (exceptMap) {
+          showBox('BUILDING TABLE…', 98);
 
-          rows.push({ name: devMap[did], miles: miles, idleH: idleH, trips: trips });
+          var rows = [];
+          Object.keys(devMap).forEach(function (did) {
+            var miles  = milesMap[did]  || 0;
+            var idleH  = idleMap[did]   || 0;
+            var trips  = tripMap[did]   || 0;
+            var except = exceptMap[did] || 0;
+            if (miles === 0 && idleH === 0 && trips === 0) return;
+
+            rows.push({ name: devMap[did], miles: miles, idleH: idleH, trips: trips, except: except });
+          });
+
+          rows.sort(function (a, b) { return b.miles - a.miles; });
+          _rows    = rows;
+          _sortKey = 'miles';
+          _sortDir = -1;
+
+          if (!rows.length) { showBox('No trip data found for the selected period.'); return; }
+          renderKPIs(rows);
+          renderTable(rows);
+
         });
-
-        rows.sort(function (a, b) { return b.miles - a.miles; });
-        _rows    = rows;
-        _sortKey = 'miles';
-        _sortDir = -1;
-
-        if (!rows.length) { showBox('No trip data found for the selected period.'); return; }
-        renderKPIs(rows);
-        renderTable(rows);
 
       }, function (errMsg) {
         showBox('');
@@ -526,7 +592,7 @@ var fleetDash = (function () {
         fromDate.setDate(fromDate.getDate() - _days);
       }
       var period = fmt(fromDate) + ' to ' + fmt(toDate);
-      var lines  = ['Fleet Dashboard Export', 'Period: ' + period, '', 'Vehicle,Mileage (mi),Trips,Idle Time (h),Idle Level'];
+      var lines  = ['Fleet Dashboard Export', 'Period: ' + period, '', 'Vehicle,Mileage (mi),Trips,Idle Time (h),Idle Level,Exception Events'];
       var mx     = Math.max.apply(null, _rows.map(function (r) { return r.idleH || 0; })) || 1;
       _rows.forEach(function (r) {
         var pct = (r.idleH || 0) / mx * 100;
@@ -535,13 +601,15 @@ var fleetDash = (function () {
           Math.round(r.miles) + ',' +
           r.trips + ',' +
           (r.idleH || 0).toFixed(2) + ',' +
-          (pct > 66 ? 'HIGH' : pct > 33 ? 'MED' : 'LOW')
+          (pct > 66 ? 'HIGH' : pct > 33 ? 'MED' : 'LOW') + ',' +
+          (r.except || 0)
         );
       });
       var tm = _rows.reduce(function (s, r) { return s + r.miles; }, 0);
       var tt = _rows.reduce(function (s, r) { return s + r.trips; }, 0);
       var ti = _rows.reduce(function (s, r) { return s + r.idleH; }, 0);
-      lines.push('"TOTAL",' + Math.round(tm) + ',' + tt + ',' + ti.toFixed(2) + ',');
+      var te = _rows.reduce(function (s, r) { return s + (r.except || 0); }, 0);
+      lines.push('"TOTAL",' + Math.round(tm) + ',' + tt + ',' + ti.toFixed(2) + ',,' + te);
 
       var blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
       var url  = URL.createObjectURL(blob);
